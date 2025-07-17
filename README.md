@@ -229,13 +229,13 @@ Here are some example commands to run this project:
 
 -----
 
-## Multi-Agent Snake
+## Multi-Agent Snake for Integrating the AI Mother Tongue (AIM) Framework
 
 https://github.com/dta7050/multiagentsplix
 
 This project implements a multi-agent snake game, utilizing two reinforcement learning algorithms (Actor-Critic and Asynchronous Q-Learning) to train the agents.
 
-## Project Structure and Overview
+## Multi-Agent Snake Structure and Overview
 
 * **`main.py`**: This file serves as the entry point for the project. It processes user arguments such as execution mode (train or simulate), algorithm (asyncQ, newalgo, or actorcritic), training time steps, and checkpoint directories. It then calls the appropriate training or simulation functions.
     * **Training Mode**: Users can specify the algorithm (asyncQ, newalgo, or actorcritic) to train the agents. The training process saves checkpoints, allowing for continued training or simulation from these points.
