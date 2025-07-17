@@ -498,4 +498,4 @@ usage_count: Records the number of times this specific aim_id was used with the 
 
 ## License
 
-This project is open-sourced under the [MIT License](https://www.google.com/search?q=MIT+License).
+This project is open-sourced under the [ Apache License 2.0](https://www.google.com/search?q=Apache+License+2.0).
