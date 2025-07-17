@@ -498,4 +498,4 @@ usage_count: Records the number of times this specific aim_id was used with the 
 
 ## License
 
-This project is open-sourced under the AI-Mother-Tongue Proprietary License
+This project is open-sourced under MＩＴ License
