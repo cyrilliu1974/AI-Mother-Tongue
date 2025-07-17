@@ -13,7 +13,7 @@ from datetime import datetime
 import json 
 
 # =======================
-# AIMDictionary (修改以記錄非 AIM 相關的遊戲數據)
+# AIMDictionary (Modified to log game data unrelated to AIM)
 # =======================
 class AIMDictionary:
     def __init__(self, filename="game_log.json"):
@@ -47,7 +47,7 @@ class AIMDictionary:
         print(f"Game log saved to {self.filename}")
 
 # =======================
-# VQ-VAE (保持不變)
+# VQ-VAE
 # =======================
 class Encoder(nn.Module):
     def __init__(self, D):
@@ -103,61 +103,61 @@ class VQVAE(nn.Module):
         return x_hat, z_e, z_q, encoding_inds
 
 # =======================
-# Agents (修改為直接輸出 C/D 行動，並集成 VQ-VAE 情境)
+# Agents (Modified to directly output C/D actions and integrate VQ-VAE context)
 # =======================
 class AgentA(nn.Module):
     def __init__(self, vqvae): 
         super().__init__()
         self.vqvae = vqvae
         self.label_embed = nn.Embedding(10, 8)
-        # 行動嵌入：0 for C, 1 for D (Cooperate/Defect)
+        # Action embedding: 0 for C, 1 for D (Cooperate/Defect)
         self.action_embed = nn.Embedding(2, 8) 
 
-        # 策略網路輸入：z_e (圖像編碼) + label_feat (標籤嵌入)
+        # Policy network input: z_e (image encoding) + label_feat (label embedding)
         policy_input_dim = vqvae.encoder.enc[-1].out_features + self.label_embed.embedding_dim
 
-        # Actor (Policy Network): 輸出 C/D 的 logits (2 個)
+        # Actor (Policy Network): Outputs logits for C/D (2 classes)
         self.policy_net = nn.Sequential(
             nn.Linear(policy_input_dim, 128),
             nn.ReLU(),
-            nn.Linear(128, 2) # 2 個 logits: C 或 D
+            nn.Linear(128, 2) # 2 logits: C or D
         )
         
-        # Critic (Value Network): 接收 AgentA 自己的情境和 AgentB 的行動
-        # Critic 輸入: z_e + label_feat + opponent_action_embed
+        # Critic (Value Network): Takes AgentA's context and AgentB's action
+        # Critic input: z_e + label_feat + opponent_action_embed
         critic_input_dim = policy_input_dim + self.action_embed.embedding_dim
         self.value_net = nn.Sequential(
             nn.Linear(critic_input_dim, 256), 
             nn.ReLU(),
-            nn.Linear(256, 1) # 輸出聯合獎勵的價值
+            nn.Linear(256, 1) # Outputs the value of joint reward
         )
         
-        # 意圖預測器 A: 根據自己的情境預測自己的行動
-        # 輸入：z_e + 標籤嵌入
-        # 輸出：2 個 logits (Cooperate 或 Defect)
+        # Intent Predictor A: Predicts AgentA's own action based on its context
+        # Input: z_e + label embedding
+        # Output: 2 logits (Cooperate or Defect)
         self.intent_predictor_A = nn.Sequential(
             nn.Linear(policy_input_dim, 64),
             nn.ReLU(),
-            nn.Linear(64, 2) # 2 個類別: C 或 D
+            nn.Linear(64, 2) # 2 classes: C or D
         )
 
-    # forward 函數：為不同模式提供不同輸出
-    # x: 原始圖像, label: 圖像標籤, opponent_action: 對手實際行動 (0 for C, 1 for D)
+    # Forward function: Provides different outputs based on mode
+    # x: original image, label: image label, opponent_action: opponent's actual action (0 for C, 1 for D)
     def forward(self, x, label, opponent_action=None, mode='policy'):
         z_e = self.vqvae.encoder(x)
         label_feat = self.label_embed(label)
-        combined_base_input = torch.cat([z_e, label_feat], dim=1) # 這是策略網路和意圖預測的基本輸入
+        combined_base_input = torch.cat([z_e, label_feat], dim=1) # Base input for policy and intent prediction
 
-        if mode == 'policy': # 輸出行動的 logits 和狀態價值
+        if mode == 'policy': # Outputs action logits and state value
             action_logits = self.policy_net(combined_base_input)
             
-            # Critic 輸入需要對手的實際行動。在 AgentA 第一次調用 policy 模式時，
-            # B_sampled_action 還未生成，這裡需要一個預設值或在 multi_agent_game 中處理
-            # 在 multi_agent_game 中，我們會在 B_sampled_action 生成後重新調用 AgentA 獲取價值。
-            # 因此這裡的 opponent_action 在計算 A_value 時不會是 None
+            # Critic input requires the opponent's actual action. When AgentA is called in policy mode for the first time,
+            # B_sampled_action is not yet generated, so we need a default value or handle it in multi_agent_game.
+            # In multi_agent_game, we recompute AgentA's value after B_sampled_action is generated.
+            # Thus, opponent_action should not be None when computing A_value.
             if opponent_action is None:
-                # 僅為確保邏輯完整性，實際使用時應確保不為 None
-                dummy_action = torch.tensor([0]).to(label.device) # 預設為 C
+                # Default to C for logical completeness, though this should not occur in practice
+                dummy_action = torch.tensor([0]).to(label.device)
                 embedded_opponent_action = self.action_embed(dummy_action)
             else:
                 embedded_opponent_action = self.action_embed(opponent_action)
@@ -167,13 +167,12 @@ class AgentA(nn.Module):
             
             return action_logits, value.squeeze(-1)
             
-        elif mode == 'predict_own_intent': # 預測自己的意圖
-            # 輸入就是 combined_base_input (z_e + label_feat)
-            return self.intent_predictor_A(combined_base_input) # 返回 logits
+        elif mode == 'predict_own_intent': # Predicts own intent
+            # Input is combined_base_input (z_e + label_feat)
+            return self.intent_predictor_A(combined_base_input) # Returns logits
         
         else:
             raise NotImplementedError(f"Mode '{mode}' not implemented for AgentA.")
-
 
 class AgentB(nn.Module):
     def __init__(self, vqvae): 
@@ -182,41 +181,41 @@ class AgentB(nn.Module):
         self.label_embed = nn.Embedding(10, 8)
         self.action_embed = nn.Embedding(2, 8) # 0 for C, 1 for D
 
-        # 策略網路輸入：z_e (圖像編碼) + label_feat (標籤嵌入) + received_opponent_action_embed (對手行動嵌入)
+        # Policy network input: z_e (image encoding) + label_feat (label embedding) + received_opponent_action_embed (opponent's action embedding)
         policy_input_dim = (self.vqvae.encoder.enc[-1].out_features + 
                             self.label_embed.embedding_dim + 
                             self.action_embed.embedding_dim) 
 
-        # Actor (Policy Network) 輸出 C/D 的 logits (2 個)
+        # Actor (Policy Network): Outputs logits for C/D (2 classes)
         self.policy_net = nn.Sequential(
             nn.Linear(policy_input_dim, 128),
             nn.ReLU(),
-            nn.Linear(128, 2) # 2 個 logits: C 或 D
+            nn.Linear(128, 2) # 2 logits: C or D
         )
 
-        # 意圖解碼器 B: 根據情境和對手的行動解碼對手意圖 (預測對手的行動)
-        # 輸入：z_e + 標籤嵌入 + 對手行動嵌入
+        # Intent Decoder B: Decodes opponent's intent based on context and opponent's action
+        # Input: z_e + label embedding + opponent's action embedding
         self.intent_decoder_B = nn.Sequential(
             nn.Linear(policy_input_dim, 64), 
             nn.ReLU(),
-            nn.Linear(64, 2) # 2 個類別: C 或 D
+            nn.Linear(64, 2) # 2 classes: C or D
         )
     
-    # forward 函數：接收原始圖像 x, 標籤 label, 和對手行動 opponent_action
+    # Forward function: Takes original image x, label, and opponent's action
     def forward(self, x, label, opponent_action, mode='policy'): 
         z_e = self.vqvae.encoder(x)
         label_feat = self.label_embed(label)
         embedded_opponent_action = self.action_embed(opponent_action)
 
-        # 將所有輸入拼接：原始圖像編碼 z_e, 標籤, 對手行動嵌入
+        # Concatenate all inputs: image encoding z_e, label, opponent's action embedding
         combined_input_for_nets = torch.cat([z_e, label_feat, embedded_opponent_action], dim=1) 
 
-        if mode == 'policy': # AgentB 只輸出行動的 logits
+        if mode == 'policy': # AgentB outputs action logits
             action_logits = self.policy_net(combined_input_for_nets) 
             return action_logits
             
-        elif mode == 'decode_opponent_intent': # 解碼對手意圖
-            return self.intent_decoder_B(combined_input_for_nets) # 返回 logits
+        elif mode == 'decode_opponent_intent': # Decodes opponent's intent
+            return self.intent_decoder_B(combined_input_for_nets) # Returns logits
         
         else:
             raise NotImplementedError(f"Mode '{mode}' not implemented for AgentB.")
@@ -225,11 +224,11 @@ class AgentB(nn.Module):
 # Game Logic & RL Components
 # =======================
 
-# 情境化獎勵
+# Contextual reward function
 def payoff(action_A, action_B, image_label, current_round):
     rA, rB = 0, 0
 
-    # A. 基礎獎勵
+    # A. Base rewards
     if action_A == 'C' and action_B == 'C': 
         rA, rB = 3, 3 
     elif action_A == 'C' and action_B == 'D': 
@@ -239,22 +238,22 @@ def payoff(action_A, action_B, image_label, current_round):
     elif action_A == 'D' and action_B == 'D': 
         rA, rB = 0, 0 
 
-    # B. 情境獎勵
-    if image_label % 2 == 0:  # 偶數：額外鼓勵合作
+    # B. Contextual rewards
+    if image_label % 2 == 0:  # Even labels: Additional incentive for cooperation
         if action_A == 'C' and action_B == 'C':
-            rA += 2 # 從 (3,3) 變為 (5,5)
+            rA += 2 # From (3,3) to (5,5)
             rB += 2
         elif (action_A == 'C' and action_B == 'D'):
-            rA -= 1 # 合作方懲罰
+            rA -= 1 # Penalty for cooperating
         elif (action_A == 'D' and action_B == 'C'):
-            rB -= 1 # 合作方懲罰
-    else:  # 奇數：輕微懲罰單方面合作，但 C,C 仍是最佳 (C,C 獎勵仍是基礎獎勵 3,3)
-        # 這裡的獎勵計算與偶數情況相同，只是 C,C 沒有額外獎勵
-        # 所以奇數 C,C 仍是 (3,3)
+            rB -= 1 # Penalty for cooperating
+    else:  # Odd labels: Slight penalty for unilateral cooperation, but C,C remains optimal
+        # Reward calculation is the same as for even labels, but C,C has no additional reward
+        # Thus, C,C remains (3,3)
         if (action_A == 'C' and action_B == 'D'):
-            rA -= 1 # 合作方懲罰
+            rA -= 1 # Penalty for cooperating
         elif (action_A == 'D' and action_B == 'C'):
-            rB -= 1 # 合作方懲罰
+            rB -= 1 # Penalty for cooperating
 
     return rA, rB
 
@@ -290,9 +289,9 @@ def train_vqvae(epochs, K_val, D_val):
 def multi_agent_game(vqvae, aim_dict, rounds=5, 
                      reflection_strategy='intent_alignment', reflection_coeff=0.1, gamma_rl=0.99, entropy_coeff=0.01): 
  
-# *** 凍結 VQ-VAE 的參數 ***
+    # Freeze VQ-VAE parameters
     for param in vqvae.parameters():
-        param.requires_grad = False # 設置為 False，使其在 Agent 訓練中不計算梯度
+        param.requires_grad = False # Prevent gradient computation during agent training
 
     agentA = AgentA(vqvae) 
     agentB = AgentB(vqvae) 
@@ -334,38 +333,38 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         x = x.unsqueeze(0) 
         current_label_tensor = torch.tensor([current_label]) 
 
-        # 1. Agent 產生行動 (Actor 部分)
-        # AgentA 策略輸出。這裡先給一個 dummy opponent_action=0，以便獲取 action_logits。
-        # 實際的 A_value 計算會在 B_sampled_action 生成後進行。
+        # 1. Agent action generation (Actor part)
+        # AgentA policy output. Here, we use a dummy opponent_action=0 to obtain action_logits.
+        # The actual A_value computation occurs after B_sampled_action is generated.
         A_action_logits_policy, _ = agentA(x, current_label_tensor, mode='policy', opponent_action=torch.tensor([0])) 
         A_dist = torch.distributions.Categorical(logits=A_action_logits_policy) 
-        A_sampled_action = A_dist.sample() # 0 (C) 或 1 (D)
+        A_sampled_action = A_dist.sample() # 0 (C) or 1 (D)
         A_log_probs = A_dist.log_prob(A_sampled_action) 
         A_entropy = A_dist.entropy() 
 
-        # AgentB 策略輸出，接收 AgentA 的行動
+        # AgentB policy output, receiving AgentA's action
         B_action_logits_policy = agentB(x, current_label_tensor, A_sampled_action, mode='policy') 
         B_dist = torch.distributions.Categorical(logits=B_action_logits_policy)
-        B_sampled_action = B_dist.sample() # 0 (C) 或 1 (D)
+        B_sampled_action = B_dist.sample() # 0 (C) or 1 (D)
         B_log_probs = B_dist.log_prob(B_sampled_action)
         B_entropy = B_dist.entropy()
 
-        # 將數字行動轉換為 C/D 字串
+        # Convert numerical actions to C/D strings
         A_action_human_interp = 'C' if A_sampled_action.item() == 0 else 'D'
         B_action_human_interp = 'C' if B_sampled_action.item() == 0 else 'D'
 
-        # 2. 計算獎勵
+        # 2. Compute rewards
         A_reward_indiv, B_reward_indiv = payoff(
             A_action_human_interp, B_action_human_interp, current_label, i + 1 
         )
         joint_reward = A_reward_indiv + B_reward_indiv 
         
-        # 3. 計算中心化 Critic 的價值 (在 AgentA 中)
-        # 重新調用 AgentA 的 forward 模式 'policy' 來計算價值，這次傳遞實際的 B_sampled_action
+        # 3. Compute centralized Critic's value (in AgentA)
+        # Recompute AgentA's forward in 'policy' mode with the actual B_sampled_action
         _, A_value = agentA(x, current_label_tensor, mode='policy', opponent_action=B_sampled_action)
 
-        # 4. 計算核心 A2C 損失
-        # Agent A 損失 (Actor-Critic)
+        # 4. Compute core A2C loss
+        # Agent A loss (Actor-Critic)
         A_advantage = torch.tensor([joint_reward], dtype=torch.float32) - A_value.cpu().detach() 
         loss_A_policy = - (A_log_probs * A_advantage.to(A_value.device)) 
         loss_A_value = value_loss_fn(A_value, torch.tensor([joint_reward], dtype=torch.float32).to(A_value.device)) 
@@ -373,27 +372,27 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         current_entropy_coeff = initial_entropy_coeff * (entropy_decay_rate ** i)
         loss_A = loss_A_policy + 0.5 * loss_A_value - current_entropy_coeff * A_entropy
 
-        # Agent B 損失 (策略損失基於共同 Critic 的 Advantage)
+        # Agent B loss (policy loss based on shared Critic's Advantage)
         B_advantage = torch.tensor([joint_reward], dtype=torch.float32) - A_value.cpu().detach() 
         loss_B_policy = - (B_log_probs * B_advantage.to(A_value.device))
         
         loss_B = loss_B_policy - current_entropy_coeff * B_entropy
 
-        # 5. 意圖溝通對齊損失
+        # 5. Intent alignment loss
         if reflection_strategy == 'intent_alignment':
-            target_A_action_idx = A_sampled_action # 0 或 1
+            target_A_action_idx = A_sampled_action # 0 or 1
             
-            # Agent A 預測自己的意圖 (輸入是情境，輸出是自己的行動預測)
+            # Agent A predicts its own intent (input is context, output is its own action prediction)
             predicted_A_intent_logits = agentA(x, current_label_tensor, mode='predict_own_intent')
             loss_A_own_intent = intent_loss_fn(predicted_A_intent_logits, target_A_action_idx)
             loss_A += reflection_coeff * loss_A_own_intent 
 
-            # Agent B 解碼對手意圖 (輸入是情境和對手行動，輸出是對手行動的預測)
+            # Agent B decodes opponent's intent (input is context and opponent's action, output is opponent's action prediction)
             predicted_B_decoded_intent_logits = agentB(x, current_label_tensor, A_sampled_action, mode='decode_opponent_intent')
-            loss_B_decode_intent = intent_loss_fn(predicted_B_decoded_intent_logits, target_A_action_idx) # B 預測 A 的行動
+            loss_B_decode_intent = intent_loss_fn(predicted_B_decoded_intent_logits, target_A_action_idx) # B predicts A's action
             loss_B += reflection_coeff * loss_B_decode_intent 
         
-        # 清除梯度並執行反向傳播和優化
+        # Clear gradients and perform backpropagation and optimization
         optimizer_A.zero_grad()
         loss_A.backward()
         optimizer_A.step()
@@ -405,12 +404,12 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         scheduler_A.step()
         scheduler_B.step()
 
-        # 記錄獎勵
+        # Record rewards
         A_rewards_history.append(A_reward_indiv)
         B_rewards_history.append(B_reward_indiv)
         Joint_rewards_history.append(joint_reward) 
         
-        # 將遊戲數據添加到 AIMDictionary (現在是通用日誌)
+        # Log game data to AIMDictionary
         aim_dict.add_entry(i+1, current_label, A_action_human_interp, B_action_human_interp, 
                            A_reward_indiv, B_reward_indiv, joint_reward, f"Round {i+1} Context")
 
@@ -427,16 +426,10 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
     return A_rewards_history, B_rewards_history, Joint_rewards_history
 
 def visualize(A_rewards, B_rewards, Joint_rewards, strategy_name): 
-     # 僅繪製聯合獎勵
+    # Plot only joint rewards
     plt.plot(Joint_rewards, label='Joint Reward', alpha=0.7, linestyle='--', color='red') 
-    plt.title(f'Payoff Over Time (Strategy: {strategy_name}) - Joint Reward Only') # 修改標題以反映只顯示聯合獎勵
+    plt.title(f'Payoff Over Time (Strategy: {strategy_name}) - Joint Reward Only')
  
-   
-    #plt.figure(figsize=(12, 7))
-    #plt.plot(A_rewards, label='A Reward', alpha=0.7)
-    #plt.plot(B_rewards, label='B Reward', alpha=0.7)
-    
-    #plt.title(f'Payoff Over Time (Strategy: {strategy_name})')
     plt.xlabel('Round')
     plt.ylabel('Reward')
     plt.legend()
@@ -450,18 +443,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Multi-Agent Contextual Prisoner's Dilemma Game with Intent Alignment")
     parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs for VQ-VAE') 
     parser.add_argument('--rounds', type=int, default=10000, help='Number of multi-agent game rounds (more for RL)') 
-    parser.add_argument('--K', type=int, default=32, help='Size of the VQ-VAE codebook. Still used for VQVAE.') 
-    parser.add_argument('--D', type=int, default=64, help='Dimension of the VQ-VAE code vectors. Still used for VQVAE.')
+    parser.add_argument('--K', type=int, default=32, help='Size of the VQ-VAE codebook') 
+    parser.add_argument('--D', type=int, default=64, help='Dimension of the VQ-VAE code vectors')
     parser.add_argument('--reflection_strategy', type=str, default='intent_alignment', 
                         choices=['none', 'intent_alignment'], 
-                        help='Reflection strategy to use: none, or intent_alignment (default).')
+                        help='Reflection strategy to use: none or intent_alignment (default)')
     parser.add_argument('--reflection_coeff', type=float, default=0.05, 
-                        help='Coefficient for the reflection loss term. Adjust as needed.')
-    parser.add_argument('--gamma_rl', type=float, default=0.99, help='Discount factor for RL rewards (gamma_rl in A2C).')
-    parser.add_argument('--entropy_coeff', type=float, default=0.01, help='Initial coefficient for entropy regularization.') 
+                        help='Coefficient for the reflection loss term')
+    parser.add_argument('--gamma_rl', type=float, default=0.99, help='Discount factor for RL rewards (gamma_rl in A2C)')
+    parser.add_argument('--entropy_coeff', type=float, default=0.01, help='Initial coefficient for entropy regularization') 
     args = parser.parse_args()
 
-    aim_dict = AIMDictionary() # 使用修改後的 AIMDictionary
+    aim_dict = AIMDictionary()
     vqvae = train_vqvae(args.epochs, args.K, args.D)
 
     A_rewards, B_rewards, Joint_rewards = multi_agent_game(vqvae, aim_dict, rounds=args.rounds,
