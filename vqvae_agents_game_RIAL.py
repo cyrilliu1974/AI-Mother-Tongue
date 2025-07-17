@@ -11,10 +11,10 @@ import torch.distributions
 import os
 from datetime import datetime
 import json
-import math # 新增導入，用於 math.log
+import math
 
 # =======================
-# AIMDictionary (保持不變)
+# AIMDictionary
 # =======================
 class AIMDictionary:
     def __init__(self, filename="game_log.json"):
@@ -48,7 +48,7 @@ class AIMDictionary:
         print(f"Game log saved to {self.filename}")
 
 # =======================
-# VQ-VAE (保持不變)
+# VQ-VAE
 # =======================
 class Encoder(nn.Module):
     def __init__(self, D):
@@ -104,7 +104,7 @@ class VQVAE(nn.Module):
         return x_hat, z_e, z_q, encoding_inds
 
 # =======================
-# Agents (修改 AgentB 的 forward 函數)
+# Agents (Modified to update AgentB's forward function)
 # =======================
 class AgentA(nn.Module):
     def __init__(self, vqvae):
@@ -159,7 +159,6 @@ class AgentA(nn.Module):
         else:
             raise NotImplementedError(f"Mode '{mode}' not implemented for AgentA.")
 
-
 class AgentB(nn.Module):
     def __init__(self, vqvae):
         super().__init__()
@@ -183,15 +182,15 @@ class AgentB(nn.Module):
             nn.Linear(64, 2)
         )
 
-    # 修改 AgentB 的 forward 函數以支持 'policy_no_message' 模式
+    # Forward function: Supports 'policy_no_message' mode
     def forward(self, x, label, opponent_action=None, mode='policy'):
         z_e = self.vqvae.encoder(x)
         label_feat = self.label_embed(label)
 
-        # 處理 opponent_action 可能為 None 的情況（用於正向聆聽的無訊息策略）
+        # Handle case where opponent_action is None (for positive listening with no message)
         if opponent_action is None:
-            # 創建一個「無訊息」的嵌入。這裡假設 action_embed 的 embedding_dim 是 8。
-            # 這是關鍵點：如何表示「沒有收到訊息」。全零向量是一種常見方法。
+            # Create a "no message" embedding. Assumes action_embed's embedding_dim is 8.
+            # A zero vector is a common way to represent "no message received."
             embedded_opponent_action = torch.zeros(label.shape[0], self.action_embed.embedding_dim, device=x.device)
         else:
             embedded_opponent_action = self.action_embed(opponent_action)
@@ -205,9 +204,9 @@ class AgentB(nn.Module):
         elif mode == 'decode_opponent_intent':
             return self.intent_decoder_B(combined_input_for_nets)
 
-        elif mode == 'policy_no_message': # 新增模式：用於計算沒有訊息時的策略
-            # 此模式下，opponent_action 應該為 None (已在函數簽名中設置默認值)，我們只使用全零嵌入
-            # 為確保邏輯清晰，重新定義無訊息輸入
+        elif mode == 'policy_no_message': # Mode for computing policy without a message
+            # In this mode, opponent_action should be None, using a zero embedding
+            # Redefine no-message input for clarity
             embedded_no_message = torch.zeros(label.shape[0], self.action_embed.embedding_dim, device=x.device)
             combined_input_no_message = torch.cat([z_e, label_feat, embedded_no_message], dim=1)
             action_logits_no_message = self.policy_net(combined_input_no_message)
@@ -217,13 +216,13 @@ class AgentB(nn.Module):
             raise NotImplementedError(f"Mode '{mode}' not implemented for AgentB.")
 
 # =======================
-# Game Logic & RL Components (修改 multi_agent_game)
+# Game Logic & RL Components (Modified multi_agent_game function)
 # =======================
 
 def payoff(action_A, action_B, image_label, current_round):
     rA, rB = 0, 0
 
-    # A. 基礎獎勵
+    # A. Base rewards
     if action_A == 'C' and action_B == 'C':
         rA, rB = 3, 3
     elif action_A == 'C' and action_B == 'D':
@@ -233,22 +232,22 @@ def payoff(action_A, action_B, image_label, current_round):
     elif action_A == 'D' and action_B == 'D':
         rA, rB = 0, 0
 
-    # B. 情境獎勵
-    if image_label % 2 == 0:  # 偶數：額外鼓勵合作
+    # B. Contextual rewards
+    if image_label % 2 == 0:  # Even labels: Additional incentive for cooperation
         if action_A == 'C' and action_B == 'C':
-            rA += 2 # 從 (3,3) 變為 (5,5)
+            rA += 2 # From (3,3) to (5,5)
             rB += 2
         elif (action_A == 'C' and action_B == 'D'):
-            rA -= 1 # 合作方懲罰
+            rA -= 1 # Penalty for cooperating
         elif (action_A == 'D' and action_B == 'C'):
-            rB -= 1 # 合作方懲罰
-    else:  # 奇數：輕微懲罰單方面合作，但 C,C 仍是最佳 (C,C 獎勵仍是基礎獎勵 3,3)
-        # 這裡的獎勵計算與偶數情況相同，只是 C,C 沒有額外獎勵
-        # 所以奇數 C,C 仍是 (3,3)
+            rB -= 1 # Penalty for cooperating
+    else:  # Odd labels: Slight penalty for unilateral cooperation, but C,C remains optimal
+        # Reward calculation is the same as for even labels, but C,C has no additional reward
+        # Thus, C,C remains (3,3)
         if (action_A == 'C' and action_B == 'D'):
-            rA -= 1 # 合作方懲罰
+            rA -= 1 # Penalty for cooperating
         elif (action_A == 'D' and action_B == 'C'):
-            rB -= 1 # 合作方懲罰
+            rB -= 1 # Penalty for cooperating
 
     return rA, rB
 
@@ -281,12 +280,12 @@ def train_vqvae(epochs, K_val, D_val):
         print(f'VQ-VAE Epoch {epoch+1}/{epochs}, Avg Loss: {epoch_loss / len(loader):.4f}')
     return vqvae
 
-# 修改 multi_agent_game 函數簽名以包含新的超參數
+# Modified multi_agent_game function to include new hyperparameters
 def multi_agent_game(vqvae, aim_dict, rounds=5,
                      reflection_strategy='intent_alignment', reflection_coeff=0.1, gamma_rl=0.99, entropy_coeff=0.01,
-                     ps_coeff=0.1, ps_target_entropy=None, pl_coeff=0.1): # 新增正向發送訊號和正向聆聽的超參數
+                     ps_coeff=0.1, ps_target_entropy=None, pl_coeff=0.1):
 
-    # *** 凍結 VQ-VAE 的參數 ***
+    # Freeze VQ-VAE parameters
     for param in vqvae.parameters():
         param.requires_grad = False
 
@@ -315,8 +314,8 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
     initial_entropy_coeff = entropy_coeff
     entropy_decay_rate = 0.9999
 
-    # 用於正向發送訊號損失：累積 A 的策略 logits
-    # 這裡採用了簡化的方式，更穩健的實作可能需要一個 replay buffer 或 EMA
+    # For Positive Signalling loss: Accumulate AgentA's policy logits
+    # Simplified approach; a more robust implementation might use a replay buffer or EMA
     batch_A_policy_logits_for_ps = []
 
     print(f"\n--- Starting Multi-Agent Contextual Prisoner's Dilemma Game (Strategy: {reflection_strategy}) ---")
@@ -333,35 +332,35 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         x = x.unsqueeze(0)
         current_label_tensor = torch.tensor([current_label])
 
-        # 1. Agent 產生行動 (Actor 部分)
+        # 1. Agent action generation (Actor part)
         A_action_logits_policy, _ = agentA(x, current_label_tensor, mode='policy', opponent_action=torch.tensor([0]))
         A_dist = torch.distributions.Categorical(logits=A_action_logits_policy)
-        A_sampled_action = A_dist.sample() # 0 (C) 或 1 (D)
+        A_sampled_action = A_dist.sample() # 0 (C) or 1 (D)
         A_log_probs = A_dist.log_prob(A_sampled_action)
-        A_entropy = A_dist.entropy() # 這個就是 H(m_t^i|x_t^i)
+        A_entropy = A_dist.entropy() # This is H(m_t^i|x_t^i)
 
-        # AgentB 策略輸出，接收 AgentA 的行動 (這是有訊息時的 AgentB 策略)
+        # AgentB policy output, receiving AgentA's action (this is AgentB's policy with message)
         B_action_logits_policy = agentB(x, current_label_tensor, A_sampled_action, mode='policy')
         B_dist = torch.distributions.Categorical(logits=B_action_logits_policy)
-        B_sampled_action = B_dist.sample() # 0 (C) 或 1 (D)
+        B_sampled_action = B_dist.sample() # 0 (C) or 1 (D)
         B_log_probs = B_dist.log_prob(B_sampled_action)
         B_entropy = B_dist.entropy()
 
-        # 將數字行動轉換為 C/D 字串
+        # Convert numerical actions to C/D strings
         A_action_human_interp = 'C' if A_sampled_action.item() == 0 else 'D'
         B_action_human_interp = 'C' if B_sampled_action.item() == 0 else 'D'
 
-        # 2. 計算獎勵
+        # 2. Compute rewards
         A_reward_indiv, B_reward_indiv = payoff(
             A_action_human_interp, B_action_human_interp, current_label, i + 1
         )
         joint_reward = A_reward_indiv + B_reward_indiv
 
-        # 3. 計算中心化 Critic 的價值 (在 AgentA 中)
+        # 3. Compute centralized Critic's value (in AgentA)
         _, A_value = agentA(x, current_label_tensor, mode='policy', opponent_action=B_sampled_action)
 
-        # 4. 計算核心 A2C 損失
-        # Agent A 損失 (Actor-Critic)
+        # 4. Compute core A2C loss
+        # Agent A loss (Actor-Critic)
         A_advantage = torch.tensor([joint_reward], dtype=torch.float32) - A_value.cpu().detach()
         loss_A_policy = - (A_log_probs * A_advantage.to(A_value.device))
         loss_A_value = value_loss_fn(A_value, torch.tensor([joint_reward], dtype=torch.float32).to(A_value.device))
@@ -369,75 +368,72 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         current_entropy_coeff = initial_entropy_coeff * (entropy_decay_rate ** i)
         loss_A = loss_A_policy + 0.5 * loss_A_value - current_entropy_coeff * A_entropy
 
-        # Agent B 損失 (策略損失基於共同 Critic 的 Advantage)
+        # Agent B loss (policy loss based on shared Critic's Advantage)
         B_advantage = torch.tensor([joint_reward], dtype=torch.float32) - A_value.cpu().detach()
         loss_B_policy = - (B_log_probs * B_advantage.to(A_value.device))
 
         loss_B = loss_B_policy - current_entropy_coeff * B_entropy
 
-
-        # --- 正向發送訊號 (Positive Signalling) 損失 ---
+        # Positive Signalling loss
         if ps_coeff > 0:
             current_cond_entropy = A_entropy # H(m_t^i|x_t^i)
             batch_A_policy_logits_for_ps.append(A_action_logits_policy.detach())
 
-            # 確保批次中有足夠的數據來估計平均策略
-            # 這裡我們用當前批次的 logits 來估計，這是一個簡化。
-            # 更複雜但更準確的 PS 實作可能需要 replay buffer 或 EMA。
-            if len(batch_A_policy_logits_for_ps) >= 1: # 至少一個樣本，但通常希望更多
-                # 簡單平均批次內的 logits
+            # Ensure enough data in batch to estimate average policy
+            # Simplified approach; a more accurate implementation might use a replay buffer or EMA
+            if len(batch_A_policy_logits_for_ps) >= 1: # At least one sample, but more are preferred
+                # Average logits in the batch
                 avg_A_logits = torch.stack(batch_A_policy_logits_for_ps).mean(dim=0)
                 avg_A_prob = torch.softmax(avg_A_logits, dim=-1)
                 H_avg_A_msg = -(avg_A_prob * torch.log(avg_A_prob + 1e-9)).sum() # H(overline{pi_M^i})
 
                 if ps_target_entropy is None:
-                    # 對於 2 個離散行動 (C/D)，最大熵為 log(2)
-                    # 論文建議 target_entropy 為 log(|A|)/2
+                    # For 2 discrete actions (C/D), maximum entropy is log(2)
+                    # Paper suggests target_entropy as log(|A|)/2
                     target_H_val = math.log(2.0) / 2
                 else:
                     target_H_val = ps_target_entropy
 
                 # L_ps = - (lambda * H(overline{pi_M^i}) - (H(m_t^i|x_t) - H_target)^2)
-                # 論文中的 lambda 是正的，且這項損失整體是最小化，所以減號是對的
+                # Lambda is positive, and the loss is minimized, so the negative sign is correct
                 loss_ps = -(H_avg_A_msg - (current_cond_entropy - target_H_val)**2)
                 loss_A += ps_coeff * loss_ps
 
-            # 可選：定期清空或限制批次大小，以控制計算成本和偏差
-            if len(batch_A_policy_logits_for_ps) > 64: # 例如，每 64 個樣本清空一次
+            # Optional: Periodically clear or limit batch size to control computational cost and bias
+            if len(batch_A_policy_logits_for_ps) > 64: # Clear every 64 samples
                 batch_A_policy_logits_for_ps = []
 
-        # --- 正向聆聽 (Positive Listening) 損失 ---
+        # Positive Listening loss
         if pl_coeff > 0:
-            # pi_A^i(a|x_t) 是有訊息時 AgentB 的行動機率
+            # pi_A^i(a|x_t) is AgentB's action probability with message
             B_prob_with_message = torch.softmax(B_action_logits_policy, dim=-1)
 
-            # overline{pi_A^i}(a|x_t') 是沒有訊息時 AgentB 的行動機率
-            # 確保這裡的計算不影響梯度，因為這是一個基準，類似論文中的 stop_gradient
+            # overline{pi_A^i}(a|x_t') is AgentB's action probability without message
+            # Ensure this computation does not affect gradients, as it's a baseline
             with torch.no_grad():
                 B_action_logits_no_message = agentB(x, current_label_tensor, opponent_action=None, mode='policy_no_message')
                 B_prob_no_message = torch.softmax(B_action_logits_no_message, dim=-1)
 
             # L_pl = - sum | pi_A^i(a|x_t) - overline{pi_A^i}(a|x_t') |
-            # 我們要最大化 L1 範數，所以損失是負的 L1 範數
+            # Maximize L1 norm, so loss is negative L1 norm
             loss_pl = -torch.sum(torch.abs(B_prob_with_message - B_prob_no_message), dim=-1).mean()
             loss_B += pl_coeff * loss_pl
 
-
-        # 5. 意圖溝通對齊損失
+        # 5. Intent alignment loss
         if reflection_strategy == 'intent_alignment':
-            target_A_action_idx = A_sampled_action # 0 或 1
+            target_A_action_idx = A_sampled_action # 0 or 1
 
-            # Agent A 預測自己的意圖 (輸入是情境，輸出是自己的行動預測)
+            # Agent A predicts its own intent (input is context, output is its own action prediction)
             predicted_A_intent_logits = agentA(x, current_label_tensor, mode='predict_own_intent')
             loss_A_own_intent = intent_loss_fn(predicted_A_intent_logits, target_A_action_idx)
             loss_A += reflection_coeff * loss_A_own_intent
 
-            # Agent B 解碼對手意圖 (輸入是情境和對手行動，輸出是對手行動的預測)
+            # Agent B decodes opponent's intent (input is context and opponent's action, output is opponent's action prediction)
             predicted_B_decoded_intent_logits = agentB(x, current_label_tensor, A_sampled_action, mode='decode_opponent_intent')
             loss_B_decode_intent = intent_loss_fn(predicted_B_decoded_intent_logits, target_A_action_idx)
             loss_B += reflection_coeff * loss_B_decode_intent
 
-        # 清除梯度並執行反向傳播和優化
+        # Clear gradients and perform backpropagation and optimization
         optimizer_A.zero_grad()
         loss_A.backward()
         optimizer_A.step()
@@ -449,12 +445,12 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
         scheduler_A.step()
         scheduler_B.step()
 
-        # 記錄獎勵
+        # Record rewards
         A_rewards_history.append(A_reward_indiv)
         B_rewards_history.append(B_reward_indiv)
         Joint_rewards_history.append(joint_reward)
 
-        # 將遊戲數據添加到 AIMDictionary (現在是通用日誌)
+        # Log game data to AIMDictionary
         aim_dict.add_entry(i+1, current_label, A_action_human_interp, B_action_human_interp,
                            A_reward_indiv, B_reward_indiv, joint_reward, f"Round {i+1} Context")
 
@@ -471,7 +467,7 @@ def multi_agent_game(vqvae, aim_dict, rounds=5,
     return A_rewards_history, B_rewards_history, Joint_rewards_history
 
 def visualize(A_rewards, B_rewards, Joint_rewards, strategy_name):
-     # 僅繪製聯合獎勵
+    # Plot only joint rewards
     plt.plot(Joint_rewards, label='Joint Reward', alpha=0.7, linestyle='--', color='red')
     plt.title(f'Payoff Over Time (Strategy: {strategy_name}) with RIAL - Joint Reward Only')
     plt.xlabel('Round')
@@ -481,29 +477,29 @@ def visualize(A_rewards, B_rewards, Joint_rewards, strategy_name):
     plt.show()
 
 # =======================
-# Main with CLI (修改參數解析)
+# Main with CLI (Updated argument parsing)
 # =======================
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Multi-Agent Contextual Prisoner's Dilemma Game with Intent Alignment and Emergent Communication Biases")
     parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs for VQ-VAE')
     parser.add_argument('--rounds', type=int, default=10000, help='Number of multi-agent game rounds (more for RL)')
-    parser.add_argument('--K', type=int, default=32, help='Size of the VQ-VAE codebook. Still used for VQVAE.')
-    parser.add_argument('--D', type=int, default=64, help='Dimension of the VQ-VAE code vectors. Still used for VQVAE.')
+    parser.add_argument('--K', type=int, default=32, help='Size of the VQ-VAE codebook')
+    parser.add_argument('--D', type=int, default=64, help='Dimension of the VQ-VAE code vectors')
     parser.add_argument('--reflection_strategy', type=str, default='intent_alignment',
                         choices=['none', 'intent_alignment'],
-                        help='Reflection strategy to use: none, or intent_alignment (default).')
+                        help='Reflection strategy to use: none or intent_alignment (default)')
     parser.add_argument('--reflection_coeff', type=float, default=0.05,
-                        help='Coefficient for the reflection loss term. Adjust as needed.')
-    parser.add_argument('--gamma_rl', type=float, default=0.99, help='Discount factor for RL rewards (gamma_rl in A2C).')
-    parser.add_argument('--entropy_coeff', type=float, default=0.01, help='Initial coefficient for entropy regularization.')
+                        help='Coefficient for the reflection loss term')
+    parser.add_argument('--gamma_rl', type=float, default=0.99, help='Discount factor for RL rewards (gamma_rl in A2C)')
+    parser.add_argument('--entropy_coeff', type=float, default=0.01, help='Initial coefficient for entropy regularization')
 
-    # 新增的正向發送訊號和正向聆聽參數
-    parser.add_argument('--ps_coeff', type=float, default=0.0, # 默認為 0，需要手動啟用
-                        help='Coefficient for Positive Signalling loss. Set > 0 to enable.')
+    # New parameters for Positive Signalling and Positive Listening
+    parser.add_argument('--ps_coeff', type=float, default=0.0, # Disabled by default
+                        help='Coefficient for Positive Signalling loss. Set > 0 to enable')
     parser.add_argument('--ps_target_entropy', type=float, default=None,
-                        help='Target conditional entropy for Positive Signalling. If None, defaults to log(2)/2 for 2 actions.')
-    parser.add_argument('--pl_coeff', type=float, default=0.0, # 默認為 0，需要手動啟用
-                        help='Coefficient for Positive Listening loss. Set > 0 to enable.')
+                        help='Target conditional entropy for Positive Signalling. If None, defaults to log(2)/2 for 2 actions')
+    parser.add_argument('--pl_coeff', type=float, default=0.0, # Disabled by default
+                        help='Coefficient for Positive Listening loss. Set > 0 to enable')
 
     args = parser.parse_args()
 
