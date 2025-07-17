@@ -498,5 +498,4 @@ usage_count: Records the number of times this specific aim_id was used with the 
 
 ## License
 
-This project is open-sourced under the [ AI-Mother-Tongue Proprietary License
-]([https://www.google.com/search?q=Apache+License+2.0](https://github.com/cyrilliu1974/AI-Mother-Tongue/?tab=License-1-ov-file)).
+This project is open-sourced under the AI-Mother-Tongue Proprietary License
