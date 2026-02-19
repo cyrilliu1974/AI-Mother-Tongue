@@ -495,6 +495,21 @@ usage_count: Records the number of times this specific aim_id was used with the 
 
 -----
 
+## Scholarly Impact
+
+This work is referenced in a recent survey on collusion risk in
+LLM-powered multi-agent systems:
+
+- *A Survey of Collusion Risk in LLM-Powered Multi-Agent Systems*  
+  OpenReview (NeurIPS Workshop).  
+  https://openreview.net/forum?id=Ylh8617Qyd
+
+The survey discusses emergent communication and coordination mechanisms
+relevant to the symbolic frameworks proposed in this repository.
+
+-----
+
+
 ## License
 
 This project is open-sourced under the [MIT License](https://www.google.com/search?q=MIT+License).
